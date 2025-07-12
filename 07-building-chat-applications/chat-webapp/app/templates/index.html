@@ -1,0 +1,120 @@
+<!-- filepath: app/templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="chat-app-container">
+        <aside class="sidebar">
+            <h2>Sessions</h2>
+            <ul id="session-list"></ul>
+            <button id="new-session-btn">+ New Session</button>
+        </aside>
+        <main class="main-chat">
+            <h1 class="chat-title">{{ app_name }}</h1>
+            <div id="chat-messages" class="chat-messages"></div>
+            <div class="chat-controls">
+                <form id="chat-form" autocomplete="off">
+                    <input type="text" id="user-input" class="chat-input" placeholder="Type your message..." required autofocus>
+                    <button type="submit" class="send-btn">Send</button>
+                    <label for="temperature">Temperature:</label>
+                    <input type="range" id="temperature" min="0" max="1" step="0.01" value="0.7">
+                    <span id="temperature-value">0.7</span>
+                </form>
+            </div>
+        </main>
+    </div>
+    <script>
+        // Session management
+        let sessions = JSON.parse(localStorage.getItem('chat_sessions') || '{}');
+        let currentSession = sessionStorage.getItem('current_session_id') || null;
+        const sessionList = document.getElementById('session-list');
+        const newSessionBtn = document.getElementById('new-session-btn');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatForm = document.getElementById('chat-form');
+        const userInput = document.getElementById('user-input');
+        const temperatureSlider = document.getElementById('temperature');
+        const temperatureValue = document.getElementById('temperature-value');
+
+        function saveSessions() {
+            localStorage.setItem('chat_sessions', JSON.stringify(sessions));
+        }
+        function saveCurrentSession() {
+            sessionStorage.setItem('current_session_id', currentSession);
+        }
+        function renderSessionList() {
+            sessionList.innerHTML = '';
+            Object.keys(sessions).forEach(id => {
+                const li = document.createElement('li');
+                li.textContent = sessions[id].name || `Session ${id.slice(-4)}`;
+                li.className = (id === currentSession) ? 'active' : '';
+                li.onclick = () => {
+                    currentSession = id;
+                    saveCurrentSession();
+                    renderSessionList();
+                    renderMessages();
+                };
+                sessionList.appendChild(li);
+            });
+        }
+        function createNewSession() {
+            const id = 'sess_' + Date.now();
+            sessions[id] = { name: `Session ${Object.keys(sessions).length + 1}`, messages: [] };
+            currentSession = id;
+            saveSessions();
+            saveCurrentSession();
+            renderSessionList();
+            renderMessages();
+        }
+        function renderMessages() {
+            chatMessages.innerHTML = '';
+            if (!currentSession || !sessions[currentSession]) return;
+            sessions[currentSession].messages.forEach(msg => {
+                appendMessage(msg.className, msg.text);
+            });
+        }
+        function appendMessage(className, text) {
+            const div = document.createElement('div');
+            div.className = 'message ' + className;
+            div.textContent = text;
+            chatMessages.appendChild(div);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        temperatureSlider.addEventListener('input', function() {
+            temperatureValue.textContent = temperatureSlider.value;
+        });
+        chatForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const userMessage = userInput.value.trim();
+            if (!userMessage) return;
+            if (!currentSession || !sessions[currentSession]) createNewSession();
+            sessions[currentSession].messages.push({ className: 'user-message', text: userMessage });
+            appendMessage('user-message', userMessage);
+            userInput.value = '';
+            appendMessage('assistant-message', '...');
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: userMessage, temperature: parseFloat(temperatureSlider.value) })
+                });
+                const data = await response.json();
+                chatMessages.lastChild.textContent = data.response;
+                sessions[currentSession].messages.push({ className: 'assistant-message', text: data.response });
+                saveSessions();
+            } catch (err) {
+                chatMessages.lastChild.textContent = 'Error: Unable to get response.';
+            }
+        });
+        newSessionBtn.onclick = createNewSession;
+        // Initialize
+        if (!currentSession || !sessions[currentSession]) createNewSession();
+        renderSessionList();
+        renderMessages();
+    </script>
+</body>
+</html>
